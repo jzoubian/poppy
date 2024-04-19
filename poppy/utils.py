@@ -1362,7 +1362,7 @@ class BackCompatibleQuantityInput(object):
         -----
 
         The checking of arguments inside variable arguments to a function is not
-        supported (i.e. \*arg or \**kwargs).
+        supported (i.e. *arg or **kwargs).
 
         Examples
         --------

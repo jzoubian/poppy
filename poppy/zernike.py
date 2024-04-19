@@ -100,9 +100,9 @@ def str_zernike(n, m):
         else:
             return "sqrt(%d)* ( %s ) " % (n + 1, outstr)
     elif signed_m > 0:
-        return "\sqrt{%d}* ( %s ) * \\cos(%d \\theta)" % (2 * (n + 1), outstr, m)
+        return "\\sqrt{%d}* ( %s ) * \\cos(%d \\theta)" % (2 * (n + 1), outstr, m)
     else:
-        return "\sqrt{%d}* ( %s ) * \\sin(%d \\theta)" % (2 * (n + 1), outstr, m)
+        return "\\sqrt{%d}* ( %s ) * \\sin(%d \\theta)" % (2 * (n + 1), outstr, m)
 
 
 def noll_indices(j):
