@@ -75,7 +75,8 @@ class Conf(_config.ConfigNamespace):
             'is available)?')
     use_numexpr = _config.ConfigItem(True, 'Use NumExpr to accelerate array math (assuming it' +
             'is available)?')
-
+    use_torch = _config.ConfigItem(True, 'Use PyTorch for FFTs (assuming it' +
+            'is available)?')
     double_precision = _config.ConfigItem(True, 'Floating point values use float64 and complex128 if True,' +
             'otherwise float32 and complex64.')
 

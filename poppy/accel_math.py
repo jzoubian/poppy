@@ -62,13 +62,26 @@ try:
     _CUPY_AVAILABLE = True
 except:
     cp = None
-    _CUPY_AVAILABLE = False    
+    _CUPY_AVAILABLE = False
 
+# add pytorch support
+try:
+    import torch
+    _TORCH_AVAILABLE = True
+    # check if a GPU exists
+    if torch.cuda.is_available():
+        _TORCH_GPU_AVAILABLE = True
+    else:
+        _TORCH_GPU_AVAILABLE = False
+except ImportError:
+    _TORCH_AVAILABLE = False
+    
 _USE_CUPY = (conf.use_cupy and _CUPY_AVAILABLE)
 _USE_OPENCL = (conf.use_opencl and _OPENCL_AVAILABLE)
 _USE_NUMEXPR = (conf.use_numexpr and _NUMEXPR_AVAILABLE and not _USE_CUPY)
 _USE_FFTW = (conf.use_fftw and _FFTW_AVAILABLE)
 _USE_MKL = (conf.use_mkl and _MKLFFT_AVAILABLE)
+_USE_TORCH = (conf.use_torch and _TORCH_AVAILABLE)
 
 xp = np
 _scipy = scipy
@@ -76,7 +89,7 @@ _scipy = scipy
 def update_math_settings():
     """ Update the module-level math flags, based on user settings
     """
-    global _USE_CUPY, _USE_OPENCL, _USE_NUMEXPR, _USE_FFTW, _USE_MKL
+    global _USE_CUPY, _USE_OPENCL, _USE_NUMEXPR, _USE_FFTW, _USE_MKL, _USE_TORCH
     global xp, _scipy
 
     _USE_CUPY = (conf.use_cupy and _CUPY_AVAILABLE)
@@ -84,6 +97,7 @@ def update_math_settings():
     _USE_NUMEXPR = (conf.use_numexpr and _NUMEXPR_AVAILABLE and not _USE_CUPY)
     _USE_FFTW = (conf.use_fftw and _FFTW_AVAILABLE)
     _USE_MKL = (conf.use_mkl and _MKLFFT_AVAILABLE)
+    _USE_TORCH = (conf.use_torch and _TORCH_AVAILABLE)
 
     if _USE_CUPY:
         xp = cp
@@ -114,6 +128,8 @@ def _r(x, y):
     Otherwise defaults to numpy. """
     if _USE_NUMEXPR:
         return ne.evaluate("sqrt(x**2+y**2)")
+    elif _USE_TORCH:
+        return torch.sqrt(x ** 2 + y ** 2)
     else:
         return np.sqrt(x ** 2 + y ** 2)
 
@@ -128,6 +144,8 @@ def _exp(x):
         return ne.evaluate("exp(x)", optimization='moderate', )
     elif _USE_CUPY:
         return cp.exp(x)
+    elif _USE_TORCH:
+        return torch.exp(x)
     else:
         return np.exp(x)
 
@@ -142,8 +160,11 @@ def _fftshift(x):
 
     See also ifftshift
     """
-    return xp.fft.fftshift(x)
-
+    if _USE_TORCH:
+        return torch.fft.fftshift(x)
+    else:
+        return xp.fft.fftshift(x)
+    
 def _ifftshift(x):
     """ Inverse FFT shifts of array contents, using CUDA if available.
     Otherwise defaults to numpy.
@@ -159,11 +180,10 @@ def _ifftshift(x):
 
     See also fftshift
     """
-
-    return xp.fft.ifftshift(x)
-
-
-
+    if _USE_TORCH:
+        return torch.fft.ifftshift(x)
+    else:
+        return xp.fft.ifftshift(x)
 
 def fft_2d(wavefront, forward=True, normalization=None, fftshift=True):
     """ main entry point for FFTs, used in Wavefront._propagate_fft and
@@ -216,6 +236,8 @@ def fft_2d(wavefront, forward=True, normalization=None, fftshift=True):
         method = 'mkl_fft'
     elif _USE_FFTW:
         method = 'pyfftw'
+    elif _USE_TORCH:
+        method = 'torch'
     else:
         method = 'numpy'
     _log.debug("using {2} FFT of {0} array, FFT_direction={1}".format(
@@ -280,6 +302,11 @@ def fft_2d(wavefront, forward=True, normalization=None, fftshift=True):
 
         wavefront = do_fft(wavefront, overwrite_input=True, planner_effort='FFTW_MEASURE',
                                 threads=multiprocessing.cpu_count())
+    elif _USE_TORCH:
+        if normalization is None:
+            normalization = 1./wavefront.shape[0] if forward else wavefront.shape[0]
+        do_fft = torch.fft.fftn if forward else torch.fft.ifftn
+        wavefront = do_fft(wavefront, dim=(-2, -1))
     else: # Basic numpy FFT
         do_fft =  np.fft.fft2 if forward else np.fft.ifft2
         if normalization is None:
@@ -297,8 +324,6 @@ def fft_2d(wavefront, forward=True, normalization=None, fftshift=True):
     _log.debug("    FFT_2D: FFT in {:3f} s, full function  in {:.3f} s".format(t2-t1, t3-t0))
 
     return wavefront
-
-
 
 def ispowerof2(num):
     """ Is this number a power of 2?"""
@@ -356,7 +381,6 @@ def benchmark_fft(npix=2048, iterations=20, double_precision=True):
     import timeit
     import poppy
 
-
     complextype = 'complex128' if double_precision else 'complex64'
 
     timer = timeit.Timer("tmp2 = poppy.accel_math.fft_2d(tmp, fftshift=False)",
@@ -369,13 +393,13 @@ tmp = np.asarray(np.random.rand({npix},{npix}), np.{complextype})
         npix=npix, iterations=iterations, complextype=complextype))
 
     defaults = (poppy.conf.use_mkl, poppy.conf.use_fftw, poppy.conf.use_numexpr, poppy.conf.use_cupy,
-            poppy.conf.use_opencl, poppy.conf.double_precision)
+            poppy.conf.use_opencl, poppy.conf.double_precision, poppy.conf.use_torch)
     poppy.conf.double_precision = double_precision
 
     # Time baseline performance in numpy
     print("Timing performance in plain numpy:")
 
-    poppy.conf.use_mkl, poppy.conf.use_fftw, poppy.conf.use_numexpr, poppy.conf.use_cupy, poppy.conf.use_opencl = (False, False, False, False, False)
+    poppy.conf.use_mkl, poppy.conf.use_fftw, poppy.conf.use_numexpr, poppy.conf.use_cupy, poppy.conf.use_opencl, poppy.conf.use_torch = (False, False, False, False, False, False)
     update_math_settings()
     time_numpy = timer.timeit(number=iterations) / iterations
     print("  {:.3f} s".format(time_numpy))
@@ -418,15 +442,34 @@ tmp = np.asarray(np.random.rand({npix},{npix}), np.{complextype})
     else:
         time_opencl = np.nan
 
+    if poppy.accel_math._CUPY_AVAILABLE:
+        print("Timing performance with CuPy:")
+        poppy.conf.use_cupy = True
+        update_math_settings()
+        time_cupy = timer.timeit(number=iterations) / iterations
+        print("  {:.3f} s".format(time_cupy))
+    else:
+        time_cupy = np.nan
 
+    if poppy.accel_math._TORCH_AVAILABLE:
+        print("Timing performance with PyTorch:")
+        poppy.conf.use_torch = True
+        update_math_settings()
+        time_torch = timer.timeit(number=iterations) / iterations
+        print("  {:.3f} s".format(time_torch))
+    else:
+        time_torch = np.nan
+    
     poppy.conf.use_mkl, poppy.conf.use_fftw, poppy.conf.use_numexpr, poppy.conf.use_cupy,\
-            poppy.conf.use_opencl, poppy.conf.double_precision = defaults
+            poppy.conf.use_opencl, poppy.conf.double_precision, poppy.conf.use_torch = defaults
 
     return {'numpy': time_numpy,
             'fftw': time_fftw,
             'numexpr': time_numexpr,
             'mkl': time_mkl,
-            'opencl': time_opencl}
+            'opencl': time_opencl,
+            'cupy': time_cupy,
+            'torch': time_torch}
 
 
 def get_processor_name():
@@ -505,7 +548,7 @@ def benchmark_2d_ffts(mode='poppy', max_pow=13, verbose=False, savefig=False):
         def fftw_1thread(it):
             # note, FFTW defaults to 1 thread, unless you override the config,
             # but that's not a fair comparison
-            pyfftw.interfaces.numpy_fft.fft2(it, thread=1)
+            pyfftw.interfaces.numpy_fft.fft2(it, threads=1)
 
         def fftw(it):
             # explicitly try multithreaded here
@@ -514,9 +557,13 @@ def benchmark_2d_ffts(mode='poppy', max_pow=13, verbose=False, savefig=False):
         def mklfft(it):
             mkl_fft.fft2(it)
 
-        funcs_to_test = [pocketfft, fftw, mklfft, scipyfft, fftw_1thread, ]
+        def torchfft(it):
+            it = torch.tensor(it, dtype=torch.complex64)
+            torch.fft.fft2(it)
+
+        funcs_to_test = [pocketfft, fftw, mklfft, scipyfft, fftw_1thread, torchfft]
         function_aliases = {pocketfft: 'numpy.fft', fftw: 'pyfftw.fft, multithreaded', scipyfft: 'scipy.fft',
-                            mklfft: "MKL FFT", fftw_1thread: 'pyfftw.fft, single-thread'}
+                            mklfft: "MKL FFT", fftw_1thread: 'pyfftw.fft, single-thread', torchfft: 'torch.fft'}
         title = "Basic 2D FFT only"
 
     elif mode == 'poppy':
@@ -543,9 +590,15 @@ def benchmark_2d_ffts(mode='poppy', max_pow=13, verbose=False, savefig=False):
 
             fft_2d(it, fftshift=False)
 
-        funcs_to_test = [poppy_numpyfft, poppy_fftw, poppy_mklfft]
+        def poppy_torch(it):
+            global _USE_TORCH
+            _USE_TORCH = True
+
+            fft_2d(it, fftshift=False)
+
+        funcs_to_test = [poppy_numpyfft, poppy_fftw, poppy_mklfft, poppy_torch]
         function_aliases = {poppy_numpyfft: 'poppy using numpy.fft', poppy_fftw: 'poppy using pyfftw.fft',
-                            poppy_mklfft: "poppy using MKL FFT"}
+                            poppy_mklfft: "poppy using MKL FFT", poppy_torch: "poppy using torch.fft"}
         title = 'full poppy.accel_math.fft_2d'
     else:
         raise ValueError(f"Unknown/invalid value for 'base' parameter: {base}")
@@ -573,8 +626,8 @@ def benchmark_2d_ffts(mode='poppy', max_pow=13, verbose=False, savefig=False):
     plt.xlim(1, 2e4)
     plt.ylim(1e-6, 1e1)
 
-    cpu_label = get_processor_name() + f", {get_physical_cpu_count()} cores"
-    plt.title(f"Time for 2D complex FFTs: {title}\n{cpu_label}", fontweight='bold')
+    #cpu_label = get_processor_name() + f", {get_physical_cpu_count()} cores"
+    #plt.title(f"Time for 2D complex FFTs: {title}\n{cpu_label}", fontweight='bold')
     if savefig:
         plt.savefig(f"bench_ffts_{mode}.png")
 
@@ -615,17 +668,26 @@ def benchmark_2d_mfts(max_pow=13, savefig=False):
 
         poppy.matrixDFT.matrix_dft(array, 16, npix)
 
+    def test_mft_torch(array, npix=64):
+        global _USE_TORCH
+        _USE_TORCH = True
+
+        poppy.matrixDFT.matrix_dft(array, 16, npix)
+
     test_mft_numpy_512 = functools.partial(test_mft_numpy, npix=512)
     test_mft_numexpr_512 = functools.partial(test_mft_numexpr, npix=512)
+    test_mft_torch_512 = functools.partial(test_mft_torch, npix=512)
 
     b_array = benchmark(
-        [test_mft_numpy, test_mft_numexpr, test_mft_numpy_512, test_mft_numexpr_512],
+        [test_mft_numpy, test_mft_numexpr, test_mft_torch, test_mft_numpy_512, test_mft_numexpr_512, test_mft_torch_512],
         arguments={2 ** i: np.random.uniform(size=shp(2 ** i)) + 1j * np.random.uniform(size=shp(2 ** i)) for i in
                    range(2, max_pow)},
         argument_name='pupil array size, npupil',
         function_aliases={test_mft_numpy: "MFT with numpy, npix=64", test_mft_numexpr: "MFT with numexpr, npix=64",
+                          test_mft_torch: "MFT with torch, npix=64",
                           test_mft_numpy_512: "MFT with numpy, npix=512",
-                          test_mft_numexpr_512: "MFT with numexpr, npix=512"}
+                          test_mft_numexpr_512: "MFT with numexpr, npix=512",
+                          test_mft_torch_512: "MFT with torch, npix=512"}
     )
     plt.figure(figsize=(12, 8))
     b_array.plot()
@@ -634,8 +696,8 @@ def benchmark_2d_mfts(max_pow=13, savefig=False):
     plt.xlim(1, 2e4)
     plt.ylim(1e-6, 1e1)
 
-    cpu_label = get_processor_name() + f", {get_physical_cpu_count()} cores"
-    plt.title(f"Matrix Fourier Transform timings\n{cpu_label}", fontweight='bold')
+    #cpu_label = get_processor_name() + f", {get_physical_cpu_count()} cores"
+    #plt.title(f"Matrix Fourier Transform timings\n{cpu_label}", fontweight='bold')
 
     if savefig:
         plt.savefig(f"bench_mfts.png")
@@ -648,10 +710,19 @@ def is_on_gpu(array):
     if _USE_CUPY:
         if isinstance(array, cp.ndarray):
             return True
+    if _USE_TORCH:
+        if isinstance(array, torch.Tensor):
+            return True
     return False
 
 def ensure_not_on_gpu(array):
     """Utility function to ensure an array is in CPU memory,
     copying it from the GPU memory if necessary
     """
-    return array.get() if is_on_gpu(array) else array
+    if is_on_gpu(array):
+        if _USE_CUPY:
+            return array.get()
+        elif _USE_TORCH:
+            return array.cpu()
+    else:
+        return array
