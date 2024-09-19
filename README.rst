@@ -2,6 +2,16 @@
 POPPY: Physical Optics Propagation in Python
 ============================================
 
+** Warning **
+This is a fork of the original POPPY package. This fork is intended to be used in the context of the DISPERS project.
+The goal of this fork is to provide a torch based implementation of the original POPPY package. This will allow for the use of the package in the context of deep learning.
+
+There is no plan to merge this fork back into the original POPPY package. This fork is intended to be used in the context of the DISPERS project.
+
+The original POPPY package can be found at https://github.com/spacetelescope/poppy
+
+The following is the original README of the POPPY package.
+
 .. image:: https://github.com/spacetelescope/poppy/blob/develop/docs/figures/readme_fig.png?raw=true
 
 .. image:: https://img.shields.io/pypi/v/poppy.svg
